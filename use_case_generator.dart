@@ -1,151 +1,42 @@
-#!/usr/bin/env dart
-
 import 'dart:io';
-
-void main(List<String> arguments) async {
-  if (arguments.isEmpty || arguments.contains('-h') || arguments.contains('--help')) {
-    _printUsage();
-    return;
-  }
-
-  try {
-    final config = _parseArguments(arguments);
-    
-    print('🚀 Use Case Generator');
-    print('=' * 50);
-    
-    // Read repository file
-    final repositoryFile = File(config.repositoryFile);
-    if (!await repositoryFile.exists()) {
-      print('❌ Repository file not found: ${config.repositoryFile}');
-      exit(1);
-    }
-
-    final repositoryCode = await repositoryFile.readAsString();
-    
-    final generator = UseCaseGenerator(
-      repositoryName: config.repositoryName,
-      repositoryFile: config.repositoryFile,
-    );
-    
-    print('📁 Repository: ${config.repositoryName}');
-    print('📄 Source: ${config.repositoryFile}');
-    print('-' * 50);
-    
-    await generator.generateUseCases(repositoryCode);
-    
-    print('=' * 50);
-    print('✅ Use case generation completed!');
-    
-  } catch (e) {
-    print('❌ Error: $e');
-    exit(1);
-  }
-}
-
-void _printUsage() {
-  print('''
-🎯 Use Case Generator
-
-Usage: dart use_case_generator.dart -r <repository_file> [options]
-
-Required:
-  -r, --repository <file>    Path to the repository Dart file
-
-Options:
-  -n, --name <name>          Repository class name (auto-detected if not provided)
-  -h, --help                 Show this help message
-
-Example:
-  dart use_case_generator.dart -r lib/features/chat/repositories/chat_repository.dart
-
-  dart use_case_generator.dart -r test_repository.dart -n UserRepository
-''');
-}
-
-class CliConfig {
-  final String repositoryFile;
-  final String repositoryName;
-
-  CliConfig({
-    required this.repositoryFile,
-    required this.repositoryName,
-  });
-}
-
-CliConfig _parseArguments(List<String> arguments) {
-  String? repositoryFile;
-  String? repositoryName;
-
-  for (int i = 0; i < arguments.length; i++) {
-    final arg = arguments[i];
-    
-    switch (arg) {
-      case '-r':
-      case '--repository':
-        if (i + 1 < arguments.length) {
-          repositoryFile = arguments[++i];
-        }
-        break;
-      
-      case '-n':
-      case '--name':
-        if (i + 1 < arguments.length) {
-          repositoryName = arguments[++i];
-        }
-        break;
-      
-      case '-h':
-      case '--help':
-        _printUsage();
-        exit(0);
-    }
-  }
-
-  if (repositoryFile == null) {
-    print('❌ Error: Repository file is required (-r)');
-    _printUsage();
-    exit(1);
-  }
-
-  repositoryName ??= _extractRepositoryNameFromFile(repositoryFile);
-
-  return CliConfig(
-    repositoryFile: repositoryFile,
-    repositoryName: repositoryName,
-  );
-}
-
-String _extractRepositoryNameFromFile(String filePath) {
-  final filename = filePath.split(Platform.pathSeparator).last;
-  final nameWithoutExtension = filename.replaceAll('.dart', '');
-  
-  // Convert to PascalCase (e.g., test_repository -> TestRepository)
-  final parts = nameWithoutExtension.split('_');
-  final pascalCaseName = parts.map((part) => 
-    part[0].toUpperCase() + part.substring(1)
-  ).join('');
-  
-  return pascalCaseName;
-}
 
 class UseCaseGenerator {
   final String repositoryName;
-  final String repositoryFile;
+  final String featurePath;
+  final String repositoryFilePath;
+  final String projectName;
 
   UseCaseGenerator({
     required this.repositoryName,
-    required this.repositoryFile,
-  });
+    required this.featurePath,
+    required this.repositoryFilePath,
+  }) : projectName = _getProjectName();
+
+  static String _getProjectName() {
+    try {
+      final pubspecFile = File('pubspec.yaml');
+      if (!pubspecFile.existsSync()) {
+        print('⚠️  pubspec.yaml not found, using default project name');
+        return 'mangaweave';
+      }
+      
+      final content = pubspecFile.readAsStringSync();
+      final nameMatch = RegExp(r'name:\s*(\w+)').firstMatch(content);
+      
+      if (nameMatch != null) {
+        return nameMatch.group(1)!;
+      } else {
+        print('⚠️  Could not find project name in pubspec.yaml, using default');
+        return 'mangaweave';
+      }
+    } catch (e) {
+      print('⚠️  Error reading pubspec.yaml: $e, using default project name');
+      return 'mangaweave';
+    }
+  }
 
   Future<void> generateUseCases(String repositoryCode) async {
     final functions = _parseRepositoryFunctions(repositoryCode);
-    
-    if (functions.isEmpty) {
-      print('❌ No repository methods found.');
-      print('   Make sure your methods follow: Future<Either<Failure, ReturnType>> methodName(Parameters);');
-      return;
-    }
     
     for (final function in functions) {
       await _generateUseCaseFile(function);
@@ -159,19 +50,10 @@ class UseCaseGenerator {
     final functions = <RepositoryFunction>[];
 
     for (final line in lines) {
-      final trimmedLine = line.trim();
-      
-      // Look for repository method patterns
-      if (trimmedLine.startsWith('Future<Either<Failure,') ||
-          trimmedLine.contains('Future<Either<Failure,')) {
-        
-        print('🔍 Found method: $trimmedLine');
-        final function = _parseFunction(trimmedLine);
+      if (line.trim().startsWith('Future<Either<Failure,')) {
+        final function = _parseFunction(line);
         if (function != null) {
-          print('   ✅ Parsed: ${function.name} -> ${function.returnType}');
           functions.add(function);
-        } else {
-          print('   ❌ Failed to parse');
         }
       }
     }
@@ -181,21 +63,15 @@ class UseCaseGenerator {
 
   RepositoryFunction? _parseFunction(String line) {
     try {
-      // Improved regex to handle nested generics
-      final returnTypeMatch = RegExp(r'Future<Either<Failure,\s*([^>]*(?:<[^>]*>)*[^>]*)>>').firstMatch(line);
-      if (returnTypeMatch == null) {
-        print('   ❌ Could not extract return type');
-        return null;
-      }
+      // Extract the complete return type including generics
+      final returnTypeMatch = RegExp(r'Future<Either<Failure,\s*([^>]*(?:<[^>]*>)?[^>]*)>').firstMatch(line);
+      if (returnTypeMatch == null) return null;
 
       final returnType = returnTypeMatch.group(1)!.trim();
 
       // Extract function name and parameters
       final functionMatch = RegExp(r'(\w+)\(([^)]*)\)').firstMatch(line);
-      if (functionMatch == null) {
-        print('   ❌ Could not extract function name');
-        return null;
-      }
+      if (functionMatch == null) return null;
 
       final functionName = functionMatch.group(1)!;
       final paramsString = functionMatch.group(2)?.trim() ?? '';
@@ -224,7 +100,7 @@ class UseCaseGenerator {
         parameters: parameters,
       );
     } catch (e) {
-      print('   ❌ Error parsing function: $e');
+      print('Error parsing function: $line - $e');
       return null;
     }
   }
@@ -235,21 +111,17 @@ class UseCaseGenerator {
     
     final content = _generateUseCase(function, useCaseName, paramsClassName);
 
-    // Create usecases directory next to repository file
-    final repositoryDir = File(repositoryFile).parent;
-    final useCasesDir = Directory('${repositoryDir.path}/usecases');
-    
-    if (!await useCasesDir.exists()) {
-      await useCasesDir.create(recursive: true);
-      print('   📁 Created directory: ${useCasesDir.path}');
+    // Use the featurePath directly without adding 'lib/'
+    final directory = Directory(featurePath);
+    if (!await directory.exists()) {
+      await directory.create(recursive: true);
     }
 
-    // Write file
-    final fileName = _toSnakeCase(useCaseName);
-    final file = File('${useCasesDir.path}/$fileName.dart');
+    // Write file to the exact path provided
+    final file = File('${directory.path}/${_toSnakeCase(useCaseName)}.dart');
     await file.writeAsString(content);
     
-    print('   📄 Generated: ${file.path}');
+    print('📁 Generated: ${file.path}');
   }
 
   String _generateUseCase(
@@ -258,14 +130,14 @@ class UseCaseGenerator {
     String paramsClassName,
   ) {
     final hasGenerics = function.returnType.contains('<');
-    final repositoryFileName = repositoryFile.split(Platform.pathSeparator).last;
+    final repositoryImportPath = _getRepositoryImportPath();
     
     return '''
 import 'package:dartz/dartz.dart';
 import 'package:equatable/equatable.dart';
-import 'package:mangaweave/core/errors/failures.dart';
-import 'package:mangaweave/core/usecases/usecase.dart';
-import '../$repositoryFileName';
+import 'package:$projectName/core/errors/failures.dart';
+import 'package:$projectName/core/usecases/usecase.dart';
+import '$repositoryImportPath';
 
 class $useCaseName extends UseCase<${function.returnType}${hasGenerics ? '>' : ''}, $paramsClassName>{
    final $repositoryName ${_toCamelCase(repositoryName)};
@@ -284,6 +156,12 @@ class $paramsClassName extends Equatable{
   List<Object?> get props => [${_generatePropsList(function.parameters)}];
 }
 ''';
+  }
+
+  String _getRepositoryImportPath() {
+    // Convert file path to package import path
+    String importPath = repositoryFilePath.replaceFirst('lib/', '').replaceFirst('.dart', '');
+    return 'package:$projectName/$importPath';
   }
 
   String _generateCallParams(RepositoryFunction function) {
@@ -305,7 +183,6 @@ class $paramsClassName extends Equatable{
   }
 
   String _pascalCase(String text) {
-    if (text.isEmpty) return text;
     return text[0].toUpperCase() + text.substring(1);
   }
 
@@ -339,4 +216,161 @@ class Parameter {
   final String name;
 
   Parameter({required this.type, required this.name});
+}
+
+void main(List<String> arguments) async {
+  if (arguments.isEmpty || arguments.contains('-h') || arguments.contains('--help')) {
+    _printUsage();
+    return;
+  }
+
+  try {
+    final config = _parseArguments(arguments);
+    
+    print('🚀 Use Case Generator - Standard Pattern');
+    print('=' * 50);
+    
+    // Read repository file
+    final repositoryFile = File(config.repositoryFile);
+    if (!await repositoryFile.exists()) {
+      print('❌ Repository file not found: ${config.repositoryFile}');
+      exit(1);
+    }
+
+    final repositoryCode = await repositoryFile.readAsString();
+    
+    // Extract actual repository class name from the file content
+    final actualRepositoryName = _extractRepositoryClassName(repositoryCode) ?? config.repositoryName;
+    
+    final generator = UseCaseGenerator(
+      repositoryName: actualRepositoryName,
+      featurePath: config.featurePath,
+      repositoryFilePath: config.repositoryFile,
+    );
+    
+    print('📁 Repository: $actualRepositoryName');
+    print('📂 Feature path: ${config.featurePath}');
+    print('📄 Source: ${config.repositoryFile}');
+    print('🏷️  Project: ${generator.projectName}');
+    print('-' * 50);
+    
+    await generator.generateUseCases(repositoryCode);
+    
+    print('=' * 50);
+    print('✅ Use case generation completed successfully!');
+    
+  } catch (e) {
+    print('❌ Error: $e');
+    exit(1);
+  }
+}
+
+void _printUsage() {
+  print('''
+🎯 Use Case Generator - Standard Pattern
+
+Usage: dart use_case_generator.dart -r <repository_file> -p <feature_path> [options]
+
+Required:
+  -r, --repository <file>    Path to the repository Dart file
+  -p, --path <path>          Feature path (e.g., "community/chat")
+
+Options:
+  -n, --name <name>          Repository class name (auto-detected if not provided)
+  -h, --help                 Show this help message
+
+Example:
+  dart use_case_generator.dart -r test_repository.dart -p community/chat
+''');
+}
+
+class CliConfig {
+  final String repositoryFile;
+  final String featurePath;
+  final String repositoryName;
+
+  CliConfig({
+    required this.repositoryFile,
+    required this.featurePath,
+    required this.repositoryName,
+  });
+}
+
+CliConfig _parseArguments(List<String> arguments) {
+  String? repositoryFile;
+  String? featurePath;
+  String? repositoryName;
+
+  for (int i = 0; i < arguments.length; i++) {
+    final arg = arguments[i];
+    
+    switch (arg) {
+      case '-r':
+      case '--repository':
+        if (i + 1 < arguments.length) {
+          repositoryFile = arguments[++i];
+        }
+        break;
+      
+      case '-p':
+      case '--path':
+        if (i + 1 < arguments.length) {
+          featurePath = arguments[++i];
+        }
+        break;
+      
+      case '-n':
+      case '--name':
+        if (i + 1 < arguments.length) {
+          repositoryName = arguments[++i];
+        }
+        break;
+      
+      case '-h':
+      case '--help':
+        _printUsage();
+        exit(0);
+    }
+  }
+
+  // Validate required arguments
+  if (repositoryFile == null) {
+    print('❌ Error: Repository file is required (-r)');
+    _printUsage();
+    exit(1);
+  }
+
+  if (featurePath == null) {
+    print('❌ Error: Feature path is required (-p)');
+    _printUsage();
+    exit(1);
+  }
+
+  // Auto-detect repository name if not provided
+  repositoryName ??= _extractRepositoryNameFromFile(repositoryFile);
+
+  return CliConfig(
+    repositoryFile: repositoryFile,
+    featurePath: featurePath,
+    repositoryName: repositoryName,
+  );
+}
+
+String _extractRepositoryNameFromFile(String filePath) {
+  final filename = filePath.split(Platform.pathSeparator).last;
+  final nameWithoutExtension = filename.replaceAll('.dart', '');
+  
+  // Convert to PascalCase (e.g., test_repository -> TestRepository)
+  final parts = nameWithoutExtension.split('_');
+  final pascalCaseName = parts.map((part) => 
+    part[0].toUpperCase() + part.substring(1)
+  ).join('');
+  
+  return pascalCaseName;
+}
+
+String? _extractRepositoryClassName(String code) {
+  // Look for class definition in the repository file
+  final classMatch = RegExp(r'class\s+(\w+Repository)\s*(?:<[^>]*>)?\s*(?:extends|implements|{)').firstMatch(code);
+  return classMatch?.group(1);
 }
