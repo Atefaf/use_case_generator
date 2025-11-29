@@ -1,0 +1,6 @@
+# Create .pubignore file (this controls what gets published to pub.dev)
+echo ".git/" > .pubignore
+echo ".github/" >> .pubignore
+echo ".vscode/" >> .pubignore
+echo ".idea/" >> .pubignore
+echo "*.iml" >> .pubignore
