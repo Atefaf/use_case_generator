@@ -2,8 +2,7 @@
 
 import 'dart:io';
 import 'package:auto_use_case/src/cli/cli_config.dart';
-import 'package:auto_use_case/src/auto_use_case_base.dart';
-
+import 'package:auto_use_case/src/use_case_generator_base.dart';
 void main(List<String> arguments) async {
   if (arguments.isEmpty ||
       arguments.contains('-h') ||
@@ -23,18 +22,15 @@ void main(List<String> arguments) async {
       print('❌ Repository file not found: ${config.repositoryFile}');
       exit(1);
     }
-
     final repositoryCode = await repositoryFile.readAsString();
     final actualRepositoryName =
         _extractRepositoryClassName(repositoryCode) ?? config.repositoryName;
-
     final generator = UseCaseGenerator(
       repositoryName: actualRepositoryName,
       featurePath: config.featurePath,
       repositoryFilePath: config.repositoryFile,
       isProMode: config.isProMode,
     );
-
     print('📁 Repository: $actualRepositoryName');
     print('📂 Feature path: ${config.featurePath}');
     print('📄 Source: ${config.repositoryFile}');
@@ -44,7 +40,6 @@ void main(List<String> arguments) async {
 
     await generator.generateUseCases(repositoryCode);
 
-    print('=' * 50);
     print('✅ Use case generation completed successfully!');
   } catch (e) {
     print('❌ Error: $e');
