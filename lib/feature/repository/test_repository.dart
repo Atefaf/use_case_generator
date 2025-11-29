@@ -1,6 +1,6 @@
 
 import 'package:dartz/dartz.dart';
-import 'package:use_case_generator/core/error/failures.dart';
+import 'package:use_case_generator/core/errors/failures.dart';
 //!dart use_case_generator.dart -r test_repository.dart
  abstract class TestRepository {
   Future<String> getUser(String userId);

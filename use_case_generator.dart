@@ -5,11 +5,13 @@ class UseCaseGenerator {
   final String featurePath;
   final String repositoryFilePath;
   final String projectName;
+  final bool isProMode;
 
   UseCaseGenerator({
     required this.repositoryName,
     required this.featurePath,
     required this.repositoryFilePath,
+    required this.isProMode,
   }) : projectName = _getProjectName();
 
   static String _getProjectName() {
@@ -43,6 +45,7 @@ class UseCaseGenerator {
     }
     
     print('✅ Generated ${functions.length} use case files');
+    print('🎯 Mode: ${isProMode ? 'PRO' : 'SIMPLE'}');
   }
 
   List<RepositoryFunction> _parseRepositoryFunctions(String code) {
@@ -50,8 +53,18 @@ class UseCaseGenerator {
     final functions = <RepositoryFunction>[];
 
     for (final line in lines) {
-      if (line.trim().startsWith('Future<Either<Failure,')) {
-        final function = _parseFunction(line);
+      final trimmedLine = line.trim();
+      
+      // Match Future<Either<Failure, T>> pattern
+      if (trimmedLine.startsWith('Future<Either<Failure,')) {
+        final function = _parseEitherFunction(line);
+        if (function != null) {
+          functions.add(function);
+        }
+      }
+      // Match Future<T> pattern (simple futures)
+      else if (trimmedLine.startsWith('Future<') && trimmedLine.contains('(')) {
+        final function = _parseSimpleFutureFunction(line);
         if (function != null) {
           functions.add(function);
         }
@@ -61,13 +74,14 @@ class UseCaseGenerator {
     return functions;
   }
 
-  RepositoryFunction? _parseFunction(String line) {
+  RepositoryFunction? _parseEitherFunction(String line) {
     try {
       // Extract the complete return type including generics
       final returnTypeMatch = RegExp(r'Future<Either<Failure,\s*([^>]*(?:<[^>]*>)?[^>]*)>').firstMatch(line);
       if (returnTypeMatch == null) return null;
 
       final returnType = returnTypeMatch.group(1)!.trim();
+      final isVoid = returnType == 'void';
 
       // Extract function name and parameters
       final functionMatch = RegExp(r'(\w+)\(([^)]*)\)').firstMatch(line);
@@ -76,40 +90,78 @@ class UseCaseGenerator {
       final functionName = functionMatch.group(1)!;
       final paramsString = functionMatch.group(2)?.trim() ?? '';
       
-      // Parse parameters
-      final parameters = <Parameter>[];
-      if (paramsString.isNotEmpty) {
-        final paramParts = paramsString.split(',');
-        for (final param in paramParts) {
-          final trimmedParam = param.trim();
-          if (trimmedParam.isNotEmpty) {
-            final paramMatch = RegExp(r'(\w+(?:<[^>]*>)?)\s+(\w+)').firstMatch(trimmedParam);
-            if (paramMatch != null) {
-              parameters.add(Parameter(
-                type: paramMatch.group(1)!,
-                name: paramMatch.group(2)!,
-              ));
-            }
-          }
-        }
-      }
+      final parameters = _parseParameters(paramsString);
 
       return RepositoryFunction(
         name: functionName,
         returnType: returnType,
         parameters: parameters,
+        hasEither: true,
+        isVoid: isVoid,
       );
     } catch (e) {
-      print('Error parsing function: $line - $e');
+      print('Error parsing either function: $line - $e');
       return null;
     }
   }
 
+  RepositoryFunction? _parseSimpleFutureFunction(String line) {
+    try {
+      // Extract return type from Future<T>
+      final returnTypeMatch = RegExp(r'Future<([^>]*)>').firstMatch(line);
+      if (returnTypeMatch == null) return null;
+
+      final returnType = returnTypeMatch.group(1)!.trim();
+      final isVoid = returnType == 'void';
+
+      // Extract function name and parameters
+      final functionMatch = RegExp(r'(\w+)\(([^)]*)\)').firstMatch(line);
+      if (functionMatch == null) return null;
+
+      final functionName = functionMatch.group(1)!;
+      final paramsString = functionMatch.group(2)?.trim() ?? '';
+      
+      final parameters = _parseParameters(paramsString);
+
+      return RepositoryFunction(
+        name: functionName,
+        returnType: returnType,
+        parameters: parameters,
+        hasEither: false,
+        isVoid: isVoid,
+      );
+    } catch (e) {
+      print('Error parsing simple future function: $line - $e');
+      return null;
+    }
+  }
+
+  List<Parameter> _parseParameters(String paramsString) {
+    final parameters = <Parameter>[];
+    if (paramsString.isNotEmpty) {
+      final paramParts = paramsString.split(',');
+      for (final param in paramParts) {
+        final trimmedParam = param.trim();
+        if (trimmedParam.isNotEmpty) {
+          final paramMatch = RegExp(r'(\w+(?:<[^>]*>)?)\s+(\w+)').firstMatch(trimmedParam);
+          if (paramMatch != null) {
+            parameters.add(Parameter(
+              type: paramMatch.group(1)!,
+              name: paramMatch.group(2)!,
+            ));
+          }
+        }
+      }
+    }
+    return parameters;
+  }
+
   Future<void> _generateUseCaseFile(RepositoryFunction function) async {
     final useCaseName = '${_pascalCase(function.name)}UseCase';
-    final paramsClassName = '${useCaseName}Params';
     
-    final content = _generateUseCase(function, useCaseName, paramsClassName);
+    final content = isProMode 
+      ? _generateProUseCase(function, useCaseName)
+      : _generateSimpleUseCase(function, useCaseName);
 
     // Use the featurePath directly without adding 'lib/'
     final directory = Directory(featurePath);
@@ -124,15 +176,13 @@ class UseCaseGenerator {
     print('📁 Generated: ${file.path}');
   }
 
-  String _generateUseCase(
-    RepositoryFunction function, 
-    String useCaseName, 
-    String paramsClassName,
-  ) {
+  String _generateProUseCase(RepositoryFunction function, String useCaseName) {
+    final paramsClassName = '${useCaseName}Params';
     final hasGenerics = function.returnType.contains('<');
     final repositoryImportPath = _getRepositoryImportPath();
     
-    return '''
+    if (function.hasEither) {
+      return '''
 import 'package:dartz/dartz.dart';
 import 'package:equatable/equatable.dart';
 import 'package:$projectName/core/errors/failures.dart';
@@ -156,6 +206,66 @@ class $paramsClassName extends Equatable{
   List<Object?> get props => [${_generatePropsList(function.parameters)}];
 }
 ''';
+    } else {
+      final returnType = function.isVoid ? 'void' : function.returnType;
+      return '''
+import 'package:equatable/equatable.dart';
+import 'package:$projectName/core/usecases/usecase.dart';
+import '$repositoryImportPath';
+
+class $useCaseName extends UseCase<${returnType}${hasGenerics ? '>' : ''}, $paramsClassName>{
+   final $repositoryName ${_toCamelCase(repositoryName)};
+   $useCaseName(this.${_toCamelCase(repositoryName)});
+  
+  @override
+  Future<${returnType}${hasGenerics ? '>' : ''}> call($paramsClassName params) {
+   return ${_toCamelCase(repositoryName)}.${function.name}(${_generateCallParams(function)});
+  }
+}
+
+class $paramsClassName extends Equatable{
+  ${_generateParamsProperties(function.parameters)}
+  const $paramsClassName(${_generateParamsConstructor(function.parameters)});
+  @override
+  List<Object?> get props => [${_generatePropsList(function.parameters)}];
+}
+''';
+    }
+  }
+
+  String _generateSimpleUseCase(RepositoryFunction function, String useCaseName) {
+    final repositoryImportPath = _getRepositoryImportPath();
+    
+    if (function.hasEither) {
+      return '''
+import 'package:dartz/dartz.dart';
+import 'package:$projectName/core/errors/failures.dart';
+import '$repositoryImportPath';
+
+class $useCaseName {
+   final $repositoryName ${_toCamelCase(repositoryName)};
+   $useCaseName(this.${_toCamelCase(repositoryName)});
+  
+  Future<Either<Failure, ${function.returnType}>> call(${_generateSimpleParams(function.parameters)}) {
+   return ${_toCamelCase(repositoryName)}.${function.name}(${_generateSimpleCallParams(function)});
+  }
+}
+''';
+    } else {
+      final returnType = function.isVoid ? 'void' : function.returnType;
+      return '''
+import '$repositoryImportPath';
+
+class $useCaseName {
+   final $repositoryName ${_toCamelCase(repositoryName)};
+   $useCaseName(this.${_toCamelCase(repositoryName)});
+  
+  Future<${returnType}> call(${_generateSimpleParams(function.parameters)}) {
+   return ${_toCamelCase(repositoryName)}.${function.name}(${_generateSimpleCallParams(function)});
+  }
+}
+''';
+    }
   }
 
   String _getRepositoryImportPath() {
@@ -167,6 +277,16 @@ class $paramsClassName extends Equatable{
   String _generateCallParams(RepositoryFunction function) {
     if (function.parameters.isEmpty) return '';
     return function.parameters.map((p) => 'params.${p.name}').join(', ');
+  }
+
+  String _generateSimpleCallParams(RepositoryFunction function) {
+    if (function.parameters.isEmpty) return '';
+    return function.parameters.map((p) => p.name).join(', ');
+  }
+
+  String _generateSimpleParams(List<Parameter> parameters) {
+    if (parameters.isEmpty) return '';
+    return parameters.map((param) => '${param.type} ${param.name}').join(', ');
   }
 
   String _generateParamsProperties(List<Parameter> parameters) {
@@ -203,11 +323,15 @@ class RepositoryFunction {
   final String name;
   final String returnType;
   final List<Parameter> parameters;
+  final bool hasEither;
+  final bool isVoid;
 
   RepositoryFunction({
     required this.name,
     required this.returnType,
     required this.parameters,
+    required this.hasEither,
+    this.isVoid = false,
   });
 }
 
@@ -227,7 +351,7 @@ void main(List<String> arguments) async {
   try {
     final config = _parseArguments(arguments);
     
-    print('🚀 Use Case Generator - Standard Pattern');
+    print('🚀 Use Case Generator');
     print('=' * 50);
     
     // Read repository file
@@ -246,12 +370,14 @@ void main(List<String> arguments) async {
       repositoryName: actualRepositoryName,
       featurePath: config.featurePath,
       repositoryFilePath: config.repositoryFile,
+      isProMode: config.isProMode,
     );
     
     print('📁 Repository: $actualRepositoryName');
     print('📂 Feature path: ${config.featurePath}');
     print('📄 Source: ${config.repositoryFile}');
     print('🏷️  Project: ${generator.projectName}');
+    print('🎯 Mode: ${config.isProMode ? 'PRO' : 'SIMPLE'}');
     print('-' * 50);
     
     await generator.generateUseCases(repositoryCode);
@@ -267,7 +393,7 @@ void main(List<String> arguments) async {
 
 void _printUsage() {
   print('''
-🎯 Use Case Generator - Standard Pattern
+🎯 Use Case Generator
 
 Usage: dart use_case_generator.dart -r <repository_file> -p <feature_path> [options]
 
@@ -277,10 +403,16 @@ Required:
 
 Options:
   -n, --name <name>          Repository class name (auto-detected if not provided)
+  --pro                      Use PRO mode (extends UseCase with params class)
+  --simple                   Use SIMPLE mode (basic implementation) [default]
   -h, --help                 Show this help message
 
-Example:
-  dart use_case_generator.dart -r test_repository.dart -p community/chat
+Examples:
+  # Simple mode (default)
+  dart use_case_generator.dart -r test_repository.dart -p lib/usecases
+
+  # Pro mode
+  dart use_case_generator.dart -r test_repository.dart -p lib/usecases --pro
 ''');
 }
 
@@ -288,11 +420,13 @@ class CliConfig {
   final String repositoryFile;
   final String featurePath;
   final String repositoryName;
+  final bool isProMode;
 
   CliConfig({
     required this.repositoryFile,
     required this.featurePath,
     required this.repositoryName,
+    required this.isProMode,
   });
 }
 
@@ -300,6 +434,7 @@ CliConfig _parseArguments(List<String> arguments) {
   String? repositoryFile;
   String? featurePath;
   String? repositoryName;
+  bool isProMode = false;
 
   for (int i = 0; i < arguments.length; i++) {
     final arg = arguments[i];
@@ -324,6 +459,14 @@ CliConfig _parseArguments(List<String> arguments) {
         if (i + 1 < arguments.length) {
           repositoryName = arguments[++i];
         }
+        break;
+      
+      case '--pro':
+        isProMode = true;
+        break;
+      
+      case '--simple':
+        isProMode = false;
         break;
       
       case '-h':
@@ -353,6 +496,7 @@ CliConfig _parseArguments(List<String> arguments) {
     repositoryFile: repositoryFile,
     featurePath: featurePath,
     repositoryName: repositoryName,
+    isProMode: isProMode,
   );
 }
 
