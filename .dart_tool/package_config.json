@@ -278,13 +278,13 @@
       "languageVersion": "2.19"
     },
     {
-      "name": "use_case_generator",
+      "name": "auto_use_case",
       "rootUri": "../",
       "packageUri": "lib/",
       "languageVersion": "3.0"
     }
   ],
-  "generated": "2025-11-29T20:22:26.456550Z",
+  "generated": "2025-11-29T20:36:46.143563Z",
   "generator": "pub",
   "generatorVersion": "3.2.0"
 }

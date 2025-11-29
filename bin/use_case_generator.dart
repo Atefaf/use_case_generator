@@ -1,8 +1,8 @@
 #!/usr/bin/env dart
 
 import 'dart:io';
-import 'package:use_case_generator/src/cli/cli_config.dart';
-import 'package:use_case_generator/src/use_case_generator_base.dart';
+import 'package:auto_use_case/src/cli/cli_config.dart';
+import 'package:auto_use_case/src/auto_use_case_base.dart';
 
 void main(List<String> arguments) async {
   if (arguments.isEmpty ||
@@ -56,7 +56,7 @@ void _printUsage() {
   print('''
 🎯 Use Case Generator
 
-Usage: dart use_case_generator.dart -r <repository_file> -p <feature_path> [options]
+Usage: dart auto_use_case.dart -r <repository_file> -p <feature_path> [options]
 
 Required:
   -r, --repository <file>    Path to the repository Dart file
@@ -70,10 +70,10 @@ Options:
 
 Examples:
   # Simple mode (default)
-  dart use_case_generator.dart -r test_repository.dart -p lib/usecases
+  dart auto_use_case.dart -r test_repository.dart -p lib/usecases
 
   # Pro mode
-  dart use_case_generator.dart -r test_repository.dart -p lib/usecases --pro
+  dart auto_use_case.dart -r test_repository.dart -p lib/usecases --pro
 ''');
 }
 

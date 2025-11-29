@@ -1,8 +1,8 @@
-name: use_case_generator
+name: auto_use_case
 description: A powerful CLI tool that automatically generates Clean Architecture use cases from repository interfaces. Supports both simple and professional patterns.
 version: 1.0.0
-repository: https://github.com/Atefaf/use_case_generator
-homepage: https://github.com/Atefaf/use_case_generator
+repository: https://github.com/Atefaf/auto_use_case
+homepage: https://github.com/Atefaf/auto_use_case
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -11,7 +11,8 @@ dependencies:
   path: ^1.8.0
 
 executables:
-  use_case_generator:
+  auto_use_case:
 
 dev_dependencies:
   test: ^1.21.0
+

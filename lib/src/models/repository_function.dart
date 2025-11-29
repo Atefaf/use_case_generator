@@ -1,4 +1,4 @@
-import 'package:use_case_generator/src/models/parameter.dart';
+import 'package:auto_use_case/src/models/parameter.dart';
 
 class RepositoryFunction {
   final String name;
