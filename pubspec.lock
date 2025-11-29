@@ -18,7 +18,7 @@ packages:
     source: hosted
     version: "5.13.0"
   args:
-    dependency: "direct main"
+    dependency: transitive
     description:
       name: args
       sha256: "7cf60b9f0cc88203c5a190b4cd62a99feea42759a7fa695010eb5de1c0b2252a"
@@ -73,14 +73,6 @@ packages:
       url: "https://pub.flutter-io.cn"
     source: hosted
     version: "3.0.3"
-  dartz:
-    dependency: "direct main"
-    description:
-      name: dartz
-      sha256: e6acf34ad2e31b1eb00948692468c30ab48ac8250e0f0df661e29f12dd252168
-      url: "https://pub.flutter-io.cn"
-    source: hosted
-    version: "0.10.1"
   file:
     dependency: transitive
     description:

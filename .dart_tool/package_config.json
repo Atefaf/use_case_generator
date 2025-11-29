@@ -56,12 +56,6 @@
       "languageVersion": "2.19"
     },
     {
-      "name": "dartz",
-      "rootUri": "file:///C:/Users/MF/AppData/Local/Pub/Cache/hosted/pub.flutter-io.cn/dartz-0.10.1",
-      "packageUri": "lib/",
-      "languageVersion": "2.12"
-    },
-    {
       "name": "file",
       "rootUri": "file:///C:/Users/MF/AppData/Local/Pub/Cache/hosted/pub.flutter-io.cn/file-7.0.1",
       "packageUri": "lib/",
@@ -290,7 +284,7 @@
       "languageVersion": "3.0"
     }
   ],
-  "generated": "2025-11-27T19:27:09.423381Z",
+  "generated": "2025-11-29T20:06:13.272503Z",
   "generator": "pub",
   "generatorVersion": "3.2.0"
 }
