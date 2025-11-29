@@ -40,26 +40,77 @@ class UseCaseGenerator {
     print('🎯 Mode: ${isProMode ? 'PRO' : 'SIMPLE'}');
   }
 
-  List<RepositoryFunction> _parseRepositoryFunctions(String code) {
-    final lines = code.split('\n');
-    final functions = <RepositoryFunction>[];
+List<RepositoryFunction> _parseRepositoryFunctions(String code) {
+  final functions = <RepositoryFunction>[];
+  final lines = code.split('\n');
 
-    for (final line in lines) {
-      final trimmedLine = line.trim();
-
-      if (trimmedLine.startsWith('Future<Either<Failure,')) {
-        final function = _parseEitherFunction(line);
-        if (function != null) functions.add(function);
-      } else if (trimmedLine.startsWith('Future<') &&
-          trimmedLine.contains('(')) {
-        final function = _parseSimpleFutureFunction(line);
-        if (function != null) functions.add(function);
+  for (final line in lines) {
+    final trimmedLine = line.trim();
+    
+    // Skip comment lines and empty lines
+    if (trimmedLine.isEmpty || trimmedLine.startsWith('//') || trimmedLine.startsWith('///')) {
+      continue;
+    }
+    
+    // Match Future<Either<Failure, T>> pattern
+    if (trimmedLine.startsWith('Future<Either<Failure,')) {
+      final function = _parseEitherFunction(line);
+      if (function != null) {
+        functions.add(function);
+        print('🔍 Found: ${function.name}');
       }
     }
-
-    return functions;
+    // Match Future<T> pattern (simple futures)
+    else if (trimmedLine.startsWith('Future<') && trimmedLine.contains('(')) {
+      final function = _parseSimpleFutureFunction(line);
+      if (function != null) {
+        functions.add(function);
+        print('🔍 Found: ${function.name}');
+      }
+    }
+    // Match Stream<T> pattern
+    else if (trimmedLine.startsWith('Stream<') && trimmedLine.contains('(')) {
+      final function = _parseStreamFunction(line);
+      if (function != null) {
+        functions.add(function);
+        print('🔍 Found: ${function.name} (Stream)');
+      }
+    }
   }
 
+  return functions;
+}
+
+RepositoryFunction? _parseStreamFunction(String line) {
+  try {
+    // Extract return type from Stream<T>
+    final returnTypeMatch = RegExp(r'Stream<([^>]*)>').firstMatch(line);
+    if (returnTypeMatch == null) return null;
+
+    final returnType = returnTypeMatch.group(1)!.trim();
+
+    // Extract function name and parameters
+    final functionMatch = RegExp(r'(\w+)\(([^)]*)\)').firstMatch(line);
+    if (functionMatch == null) return null;
+
+    final functionName = functionMatch.group(1)!;
+    final paramsString = functionMatch.group(2)?.trim() ?? '';
+    
+    final parameters = _parseParameters(paramsString);
+
+    return RepositoryFunction(
+      name: functionName,
+      returnType: returnType,
+      parameters: parameters,
+      hasEither: false,
+      isVoid: false,
+      isStream: true, // Mark as stream function
+    );
+  } catch (e) {
+    print('Error parsing stream function: $line - $e');
+    return null;
+  }
+}
   RepositoryFunction? _parseEitherFunction(String line) {
     try {
       final returnTypeMatch =
@@ -146,29 +197,44 @@ class UseCaseGenerator {
     print('📁 Generated: ${file.path}');
   }
 
-  String _generateProUseCase(RepositoryFunction function, String useCaseName) {
-    final paramsClassName = '${useCaseName}Params';
-    final hasGenerics = function.returnType.contains('<');
-    final repositoryImportPath = _getRepositoryImportPath();
+String _generateProUseCase(RepositoryFunction function, String useCaseName) {
+  final paramsClassName = '${useCaseName}Params';
+  final hasGenerics = function.returnType.contains('<');
+  final repositoryImportPath = _getRepositoryImportPath();
 
-    final imports = function.hasEither
-        ? '''
+  // Handle imports based on function type
+  String imports;
+  if (function.isStream) {
+    imports = '''
+import 'package:equatable/equatable.dart';
+import 'package:$projectName/core/usecases/usecase.dart';
+''';
+  } else if (function.hasEither) {
+    imports = '''
 import 'package:dartz/dartz.dart';
 import 'package:equatable/equatable.dart';
 import 'package:$projectName/core/errors/failures.dart';
 import 'package:$projectName/core/usecases/usecase.dart';
-'''
-        : '''
+''';
+  } else {
+    imports = '''
 import 'package:equatable/equatable.dart';
 import 'package:$projectName/core/usecases/usecase.dart';
 ''';
+  }
 
-    final returnType = function.isVoid ? 'void' : function.returnType;
-    final returnStatement = function.hasEither
-        ? 'Future<Either<Failure, $returnType${hasGenerics ? '>' : ''}>>'
-        : 'Future<$returnType${hasGenerics ? '>' : ''}>';
+  // Handle return types based on function type
+  final returnType = function.isVoid ? 'void' : function.returnType;
+  String returnStatement;
+  if (function.isStream) {
+    returnStatement = 'Stream<$returnType${hasGenerics ? '>' : ''}>';
+  } else if (function.hasEither) {
+    returnStatement = 'Future<Either<Failure, $returnType${hasGenerics ? '>' : ''}>>';
+  } else {
+    returnStatement = 'Future<$returnType${hasGenerics ? '>' : ''}>';
+  }
 
-    return '''
+  return '''
 $imports
 import '$repositoryImportPath';
 
@@ -189,25 +255,29 @@ class $paramsClassName extends Equatable{
   List<Object?> get props => [${_generatePropsList(function.parameters)}];
 }
 ''';
-  }
+}
 
-  String _generateSimpleUseCase(
-      RepositoryFunction function, String useCaseName) {
-    final repositoryImportPath = _getRepositoryImportPath();
-    final returnType = function.isVoid ? 'void' : function.returnType;
-
-    final imports = function.hasEither
-        ? '''
+ String _generateSimpleUseCase(RepositoryFunction function, String useCaseName) {
+  final repositoryImportPath = _getRepositoryImportPath();
+  
+  // Handle return types based on function type
+  final returnType = function.isVoid ? 'void' : function.returnType;
+  String returnStatement;
+  String imports = '';
+  
+  if (function.isStream) {
+    returnStatement = 'Stream<$returnType>';
+  } else if (function.hasEither) {
+    returnStatement = 'Future<Either<Failure, $returnType>>';
+    imports = '''
 import 'package:dartz/dartz.dart';
 import 'package:$projectName/core/errors/failures.dart';
-'''
-        : '';
+''';
+  } else {
+    returnStatement = 'Future<$returnType>';
+  }
 
-    final returnStatement = function.hasEither
-        ? 'Future<Either<Failure, $returnType>>'
-        : 'Future<$returnType>';
-
-    return '''
+  return '''
 $imports
 import '$repositoryImportPath';
 
@@ -220,8 +290,7 @@ class $useCaseName {
   }
 }
 ''';
-  }
-
+}
   String _getRepositoryImportPath() {
     // Remove 'lib/' prefix
     String importPath = repositoryFilePath.replaceFirst('lib/', '');

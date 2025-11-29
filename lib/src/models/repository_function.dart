@@ -6,12 +6,15 @@ class RepositoryFunction {
   final List<Parameter> parameters;
   final bool hasEither;
   final bool isVoid;
+  final bool isStream;
 
-  const RepositoryFunction({
+  RepositoryFunction({
     required this.name,
     required this.returnType,
     required this.parameters,
     required this.hasEither,
     this.isVoid = false,
+    this.isStream = false,
   });
+
 }
