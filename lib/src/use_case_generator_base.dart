@@ -42,19 +42,22 @@ class UseCaseGenerator {
 
 List<RepositoryFunction> _parseRepositoryFunctions(String code) {
   final functions = <RepositoryFunction>[];
-  final lines = code.split('\n');
+  
+  // Remove all comments first
+  final withoutComments = _removeComments(code);
+  final lines = withoutComments.split('\n');
 
   for (final line in lines) {
     final trimmedLine = line.trim();
     
-    // Skip comment lines and empty lines
-    if (trimmedLine.isEmpty || trimmedLine.startsWith('//') || trimmedLine.startsWith('///')) {
+    // Skip empty lines
+    if (trimmedLine.isEmpty) {
       continue;
     }
     
     // Match Future<Either<Failure, T>> pattern
     if (trimmedLine.startsWith('Future<Either<Failure,')) {
-      final function = _parseEitherFunction(line);
+      final function = _parseEitherFunction(trimmedLine);
       if (function != null) {
         functions.add(function);
         print('🔍 Found: ${function.name}');
@@ -62,7 +65,7 @@ List<RepositoryFunction> _parseRepositoryFunctions(String code) {
     }
     // Match Future<T> pattern (simple futures)
     else if (trimmedLine.startsWith('Future<') && trimmedLine.contains('(')) {
-      final function = _parseSimpleFutureFunction(line);
+      final function = _parseSimpleFutureFunction(trimmedLine);
       if (function != null) {
         functions.add(function);
         print('🔍 Found: ${function.name}');
@@ -70,7 +73,7 @@ List<RepositoryFunction> _parseRepositoryFunctions(String code) {
     }
     // Match Stream<T> pattern
     else if (trimmedLine.startsWith('Stream<') && trimmedLine.contains('(')) {
-      final function = _parseStreamFunction(line);
+      final function = _parseStreamFunction(trimmedLine);
       if (function != null) {
         functions.add(function);
         print('🔍 Found: ${function.name} (Stream)');
@@ -79,6 +82,17 @@ List<RepositoryFunction> _parseRepositoryFunctions(String code) {
   }
 
   return functions;
+}
+
+String _removeComments(String code) {
+  // Remove single-line comments (// and ///)
+  var result = code.replaceAll(RegExp(r'//[^\n]*'), '');
+  result = result.replaceAll(RegExp(r'///[^\n]*'), '');
+  
+  // Remove multi-line comments (/* ... */)
+  result = result.replaceAll(RegExp(r'/\*[\s\S]*?\*/'), '');
+  
+  return result;
 }
 
 RepositoryFunction? _parseStreamFunction(String line) {
@@ -111,31 +125,37 @@ RepositoryFunction? _parseStreamFunction(String line) {
     return null;
   }
 }
-  RepositoryFunction? _parseEitherFunction(String line) {
-    try {
-      final returnTypeMatch =
-          RegExp(r'Future<Either<Failure,\s*([^>]*(?:<[^>]*>)?[^>]*)>')
-              .firstMatch(line);
-      final functionMatch = RegExp(r'(\w+)\(([^)]*)\)').firstMatch(line);
+RepositoryFunction? _parseEitherFunction(String line) {
+  try {
+    // Extract the complete return type including generics
+    final returnTypeMatch = RegExp(r'Future<Either<Failure,\s*([^>]*(?:<[^>]*>)?[^>]*)>').firstMatch(line);
+    if (returnTypeMatch == null) return null;
 
-      if (returnTypeMatch == null || functionMatch == null) return null;
+    final returnType = returnTypeMatch.group(1)!.trim();
+    final isVoid = returnType == 'void';
 
-      final returnType = returnTypeMatch.group(1)!.trim();
-      final functionName = functionMatch.group(1)!;
-      final paramsString = functionMatch.group(2)?.trim() ?? '';
+    // Extract function name and parameters
+    final functionMatch = RegExp(r'(\w+)\(([^)]*)\)').firstMatch(line);
+    if (functionMatch == null) return null;
 
-      return RepositoryFunction(
-        name: functionName,
-        returnType: returnType,
-        parameters: _parseParameters(paramsString),
-        hasEither: true,
-        isVoid: returnType == 'void',
-      );
-    } catch (e) {
-      return null;
-    }
+    final functionName = functionMatch.group(1)!;
+    final paramsString = functionMatch.group(2)?.trim() ?? '';
+    
+    final parameters = _parseParameters(paramsString);
+
+    return RepositoryFunction(
+      name: functionName,
+      returnType: returnType,
+      parameters: parameters,
+      hasEither: true,
+      isVoid: isVoid,
+      isStream: false,
+    );
+  } catch (e) {
+    print('Error parsing either function: $line - $e');
+    return null;
   }
-
+}
   RepositoryFunction? _parseSimpleFutureFunction(String line) {
     try {
       final returnTypeMatch = RegExp(r'Future<([^>]*)>').firstMatch(line);
