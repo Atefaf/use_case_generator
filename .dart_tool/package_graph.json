@@ -5,9 +5,8 @@
   "packages": [
     {
       "name": "auto_use_case",
-      "version": "1.0.0",
+      "version": "1.2.0",
       "dependencies": [
-        "args",
         "path"
       ],
       "devDependencies": [
@@ -49,11 +48,6 @@
     {
       "name": "path",
       "version": "1.9.0",
-      "dependencies": []
-    },
-    {
-      "name": "args",
-      "version": "2.5.0",
       "dependencies": []
     },
     {
@@ -367,6 +361,11 @@
         "async",
         "path"
       ]
+    },
+    {
+      "name": "args",
+      "version": "2.5.0",
+      "dependencies": []
     },
     {
       "name": "term_glyph",
