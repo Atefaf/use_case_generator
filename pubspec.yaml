@@ -1,6 +1,6 @@
 name: auto_use_case
 description: A powerful CLI tool that automatically generates Clean Architecture use cases from repository interfaces. Supports both simple and professional patterns.
-version: 1.3.0
+version: 1.4.0
 repository: https://github.com/Atefaf/auto_use_case
 homepage: https://github.com/Atefaf/auto_use_case
 
